@@ -47,6 +47,7 @@ body.authenticated .login-screen{display:none}
     <button data-page="contacts"><span>♙</span> Contacts</button>
     <button data-page="campaign"><span>✧</span> Create campaign</button>
     <button data-page="history"><span>↗</span> Campaign history</button>
+    <button data-page="whatsapp"><span>◉</span> WhatsApp test</button>
   </nav></div>
   <div class="sidefoot"><b>Shree Vidyasagram</b>Khaperkheda, Nagpur<br>Serving generations since 1995</div>
 </aside>
@@ -96,6 +97,21 @@ body.authenticated .login-screen{display:none}
 </form></section>
 <section class="panel"><div class="panelhead"><div><h2>WhatsApp preview</h2><p>Approximate view of your message.</p></div></div><div class="preview"><div class="phone"><div class="phonehead">🟢 Shree Vidyasagram</div><div class="bubble" id="previewText">Your promotional message will appear here…<img id="previewImage" class="previewimage" alt="Campaign preview"></div></div></div><p class="footnote">Preview is illustrative; actual WhatsApp formatting may differ.</p></section>
 </div></section>
+<section id="whatsappPage" class="hidden">
+<section class="panel">
+<div class="panelhead"><div><h2>Send a test WhatsApp message</h2><p>Send one approved template to your pre-approved personal test number.</p></div><span class="tag">TEST MODE ONLY</span></div>
+<div class="notice">Safety restriction: the Cloudflare Worker accepts only the single number configured as WHATSAPP_TEST_RECIPIENT. This screen cannot send to your customer list or start a bulk campaign.</div>
+<form id="testMessageForm" style="margin-top:20px">
+<div class="formrow">
+<div class="field"><label for="testRecipient">TEST RECIPIENT MOBILE NUMBER</label><input id="testRecipient" type="tel" inputmode="numeric" autocomplete="tel" required placeholder="Enter number with country code"></div>
+<div class="field"><label for="testTemplateName">APPROVED TEMPLATE NAME</label><input id="testTemplateName" required pattern="[a-z0-9_]{1,100}" placeholder="e.g. vidyasagram_test"></div>
+</div>
+<div class="field"><label for="testLanguage">TEMPLATE LANGUAGE CODE</label><input id="testLanguage" value="en_US" required placeholder="en_US"></div>
+<div class="notice">For this first test, use an approved template with no variables. Variable components will be added after we verify the basic send flow.</div>
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px"><button type="submit" class="btn primary" id="testSendButton">Send one test message</button><span id="testSendStatus" class="muted" role="status" aria-live="polite"></span></div>
+</form>
+</section>
+</section>
 <section id="historyPage" class="hidden"><section class="panel"><div class="panelhead"><div><h2>Campaign history</h2><p>Saved drafts stored in this browser.</p></div><button class="btn primary" onclick="showPage('campaign')">＋ New campaign</button></div>
 <div class="tablewrap"><table><thead><tr><th>Campaign</th><th>Audience</th><th>Created</th><th>Status</th><th>Est. Meta cost*</th></tr></thead><tbody id="historyRows"><tr><td colspan="5" class="empty">No campaigns saved yet.</td></tr></tbody></table></div>
 <p class="footnote">*Illustrative planning estimate at ₹0.8631 per delivered marketing message, excluding taxes/provider fees. This is not a live quotation; verify current pricing in your Meta account before budgeting.</p></section></section>
@@ -105,7 +121,7 @@ body.authenticated .login-screen{display:none}
 const RATE=0.8631;
 let contacts=[],campaigns=[];
 try{contacts=JSON.parse(localStorage.getItem("vs_contacts")||"[]");campaigns=JSON.parse(localStorage.getItem("vs_campaigns")||"[]")}catch(e){contacts=[];campaigns=[]}
-const pages={dashboard:["Good afternoon.","Your customer communication, all in one place."],contacts:["Customer contacts","Keep your audience organized and consent-aware."],campaign:["Create a campaign","Prepare your next promotion for review."],history:["Campaign history","Review your saved campaign drafts."]};
+const pages={dashboard:["Good afternoon.","Your customer communication, all in one place."],contacts:["Customer contacts","Keep your audience organized and consent-aware."],campaign:["Create a campaign","Prepare your next promotion for review."],history:["Campaign history","Review your saved campaign drafts."],whatsapp:["WhatsApp test","Send one approved template to your test number."]};
 function saveLocal(){try{localStorage.setItem("vs_contacts",JSON.stringify(contacts));localStorage.setItem("vs_campaigns",JSON.stringify(campaigns))}catch(e){alert("Browser storage is full or disabled. Export your records before refreshing.")}}
 function showPage(p){document.querySelectorAll("main section[id$='Page']").forEach(x=>x.classList.add("hidden"));document.getElementById(p+"Page").classList.remove("hidden");document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.page===p));document.getElementById("pageTitle").textContent=pages[p][0];document.getElementById("pageSub").textContent=pages[p][1];if(p==="history")renderHistory();if(p==="contacts")renderContacts();window.scrollTo({top:0,behavior:"smooth"})}
 document.querySelectorAll(".nav button").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.page)));
@@ -201,6 +217,53 @@ if (getValidSession()) {
   document.body.classList.add("authenticated");
   checkApiStatus();
 }
+</script>
+
+
+<script>
+document.getElementById("testMessageForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = document.getElementById("testSendButton");
+  const status = document.getElementById("testSendStatus");
+  const token = getValidSession();
+  if (!token) {
+    ownerLogout();
+    status.textContent = "Your session expired. Please log in again.";
+    return;
+  }
+  const to = document.getElementById("testRecipient").value.replace(/\D/g, "");
+  const templateName = document.getElementById("testTemplateName").value.trim();
+  const language = document.getElementById("testLanguage").value.trim() || "en_US";
+  if (!to || !/^[a-z0-9_]{1,100}$/.test(templateName)) {
+    status.textContent = "Check the recipient number and template name.";
+    return;
+  }
+  if (!confirm("Send one real WhatsApp template message to the entered test number? Meta may charge for a delivered marketing message.")) return;
+  button.disabled = true;
+  button.textContent = "Sending…";
+  status.textContent = "";
+  try {
+    const response = await fetch(API_BASE + "/send-template", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token
+      },
+      body: JSON.stringify({ to, template_name: templateName, language })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      status.textContent = data.error || "Message was not accepted.";
+    } else {
+      status.textContent = "Accepted by WhatsApp. Message ID: " + (data.message_id || "received");
+    }
+  } catch {
+    status.textContent = "Could not reach the WhatsApp API. No success was confirmed.";
+  } finally {
+    button.disabled = false;
+    button.textContent = "Send one test message";
+  }
+});
 </script>
 
 </body>
